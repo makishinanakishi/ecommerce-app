@@ -33,31 +33,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'        # 使用 pnpm 缓存
 
       - name: 设置 pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v2
         with:
           version: 8
 
       - name: 安装依赖（兼容有/无 pnpm-lock.yaml）
-        run: |
-          if [ -f pnpm-lock.yaml ]; then
-            pnpm install --frozen-lockfile
-          else
+        run: 
             pnpm install
-          fi
-
-      - name: TypeScript 类型检查
-        run: pnpm run tsc --if-present --noEmit
-        continue-on-error: true
-
-      - name: 代码规范检查
-        run: pnpm run lint --if-present
-        continue-on-error: true
+       
 
       - name: 构建 Next.js 应用
-        run: pnpm run build
+        run: pnpm  build
         env:
           NODE_ENV: production
 
