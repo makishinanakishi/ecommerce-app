@@ -1,4 +1,4 @@
-name: 构建和部署电商网站
+name: 构建和部署电商网站（Next.js -> GitHub Pages）
 
 on:
   push:
@@ -20,6 +20,9 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  NODE_VERSION: "20"    # 在需要时统一修改 Node 版本
+
 jobs:
   build:
     name: 构建项目
@@ -29,47 +32,62 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 设置 Node.js
+      - name: 设置 Node.js（会自动下载并安装指定版本）
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: Install pnpm
-        run: npm install -g pnpm
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'        # 让 setup-node 帮助缓存 pnpm 依赖（可选）
 
-      - name: 设置 pnpm
-        uses: pnpm/action-setup@v2
+      - name: 全局安装 pnpm（确保 runner 有 pnpm）
+        run: npm install -g pnpm@8
+
+      - name: 设置 pnpm action（可用于缓存、环境）
+        uses: pnpm/action-setup@v3
         with:
           version: 8
 
+      - name: 缓存 pnpm store（可加速 CI）
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
       - name: 安装依赖（兼容有/无 pnpm-lock.yaml）
-        run: 
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
             pnpm install
-       
+          fi
 
       - name: 构建 Next.js 应用
-        run: pnpm  build
         env:
           NODE_ENV: production
+        run: pnpm run build
 
       - name: 导出静态网站（优先使用 next export）
         run: |
+          # 如果支持 next export（纯静态），优先导出到 out/
           if pnpm exec -- next export; then
             echo "next export 成功"
           else
-            echo "使用 next build 的输出 或 将静态资源复制到 out/"
+            echo "next export 失败，尝试收集静态产物到 out/"
             mkdir -p out
+            # 将 .next/static 复制到 out/_next（静态资源）
             cp -r .next/static out/_next 2>/dev/null || true
+            # 复制 public 下的静态资源
             cp -r public/* out/ 2>/dev/null || true
           fi
-        continue-on-error: true
 
-      - name: 上传构建产物
+      - name: 上传构建产物（供后续 job 或 Debug 使用）
         uses: actions/upload-artifact@v4
         with:
           name: build-output
           path: |
-            .next/
             out/
+            .next/
             public/
           retention-days: 7
 
@@ -87,18 +105,21 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 设置 Node.js
+      - name: 设置 Node.js（部署阶段同样安装 Node）
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
+
+      - name: 全局安装 pnpm
+        run: npm install -g pnpm@8
 
       - name: 设置 pnpm
         uses: pnpm/action-setup@v3
         with:
           version: 8
 
-      - name: 安装依赖（兼容有/无 pnpm-lock.yaml）
+      - name: 恢复/安装依赖
         run: |
           if [ -f pnpm-lock.yaml ]; then
             pnpm install --frozen-lockfile
@@ -106,10 +127,9 @@ jobs:
             pnpm install
           fi
 
-      - name: 构建静态网站
+      - name: 构建静态网站（与 build job 保持一致）
         run: |
           pnpm run build
-          # 尝试 next export，否则收集静态产物到 out/
           if pnpm exec -- next export; then
             echo "next export 成功"
           else
